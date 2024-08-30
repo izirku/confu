@@ -2,12 +2,19 @@ const std = @import("std");
 const yaml = @import("yaml");
 const spec = @import("spec.zig");
 
+const log = std.log.scoped(.confu);
+
+pub const std_options = std.Options{
+    .log_scope_levels = &[_]std.log.ScopeLevel{
+        .{ .scope = .parse, .level = .info },
+        .{ .scope = .tokenizer, .level = .info },
+    },
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-
-    const stderr = std.io.getStdErr().writer();
 
     var arg_iter = try std.process.argsWithAllocator(allocator);
     defer arg_iter.deinit();
@@ -16,8 +23,8 @@ pub fn main() !void {
     const input_file_name = arg_iter.next().?;
     const output_file_name = arg_iter.next().?;
 
-    try stderr.print("input YAML: {s}\n", .{input_file_name});
-    try stderr.print("output ZIG: {s}\n", .{output_file_name});
+    log.debug("input YAML: {s}", .{input_file_name});
+    log.debug("output ZIG: {s}", .{output_file_name});
 
     const input_file = try std.fs.cwd().openFile(input_file_name, .{});
     defer input_file.close();
