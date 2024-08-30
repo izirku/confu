@@ -1,0 +1,51 @@
+kind: ConfuParameters
+version: v1
+output: "params.zig"
+env_prefix: "APP_"
+shared_params:
+  - param_type: stacked
+    description: "level of verbocity"
+    long: verbocity
+    short: v
+    env: VERBOSE
+    value_type: u8
+    default_value: 0
+    # limit to `-vvv`
+    limit: 3
+commands:
+  - description: "command 1 description"
+    name: cmd1
+    params:
+      - param_type: set
+        description: "list of characters to trim"
+        long: trim
+        short: t
+        env: TRIM_SET
+        value_type: char
+      - param_type: map
+        description: "character replacement map"
+        long: char_map
+        key_type: char
+        value_type: char
+      # NOTE: positional parameter with `limit: 0` (unlimited) must be last as we don't know
+      #       how many of them are there
+      - param_type: positional
+        description: "output file"
+        name: output
+        env: OUTPUT_FILE
+        value_type: str
+        required: true
+        # if not provided directly or via env, `stdout` will be set to `true` in parsed result
+        # optionally, it could be provided directly as a `-`, indicating the
+        allow_stdout: true
+        limit: 1
+      - param_type: positional
+        description: "input file(s)"
+        name: input
+        env: INPUT_FILES
+        value_type: str
+        required: true
+        # if not provided directly or via env, `stdin` will be set to `true` in parsed result
+        # optionally, it could be provided directly as a `-`, indicating the
+        allow_stdin: true
+        limit: 0 # `0` is the default value
