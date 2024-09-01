@@ -1,7 +1,8 @@
 kind: ConfuParameters
 version: v1
-output: "params.zig"
-env_prefix: "APP_"
+config:
+  output: "params.zig"
+  env_prefix: "APP_"
 shared_params:
   - param_type: stacked
     description: "level of verbocity"

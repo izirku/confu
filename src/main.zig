@@ -4,12 +4,13 @@ const spec = @import("spec.zig");
 
 const log = std.log.scoped(.confu);
 
-pub const std_options = std.Options{
-    .log_scope_levels = &[_]std.log.ScopeLevel{
-        .{ .scope = .parse, .level = .info },
-        .{ .scope = .tokenizer, .level = .info },
-    },
-};
+// this is actually useful during development, don't override the log level for `zig-yaml`
+// pub const std_options = std.Options{
+//     .log_scope_levels = &[_]std.log.ScopeLevel{
+//         .{ .scope = .parse, .level = .info },
+//         .{ .scope = .tokenizer, .level = .info },
+//     },
+// };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -35,8 +36,9 @@ pub fn main() !void {
     var untyped_yaml = try yaml.Yaml.load(allocator, input_file_contents);
     defer untyped_yaml.deinit();
 
-    const parsed_yaml = try untyped_yaml.parse(spec.ArgsSpecV1);
+    const parsed_yaml: spec.ArgsSpecV1 = try untyped_yaml.parse(spec.ArgsSpecV1);
 
     // TODO: write the domain logic
     _ = parsed_yaml;
+    // try std.testing.expect(parsed_yaml.commands.?[0].params[2].required.?);
 }

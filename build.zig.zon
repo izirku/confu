@@ -6,7 +6,7 @@
     .dependencies = .{
         .@"zig-yaml" = .{
             .url = "https://github.com/izirku/zig-yaml/archive/nightly.tar.gz",
-            .hash = "12208398e1393f83a39d03f3ef4893607650b6227dc7f1eee3db4d163fbc2c0c37ca",
+            .hash = "122093fb1e32008d295d6485bc1238211669faed3feed7069142774027c751e731ef",
         },
     },
 
