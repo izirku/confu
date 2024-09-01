@@ -1,4 +1,5 @@
 const std = @import("std");
+const examples = @import("build/add_example.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -39,4 +40,7 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    examples.init(b, target, optimize);
+    examples.add("confu");
 }

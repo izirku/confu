@@ -3,6 +3,10 @@ version: v1
 config:
   output: "params.zig"
   env_prefix: "APP_"
+  # callbacks | manual
+  mode: callbacks
+  # auto - print usage | manual - return error, let author decide how to handle it
+  error_handling: auto
 shared_params:
   - param_type: stacked
     description: "level of verbocity"
