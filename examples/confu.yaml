@@ -29,7 +29,7 @@ commands:
         value_type: char
       - param_type: map
         description: "character replacement map"
-        long: char_map
+        long: char-map
         key_type: char
         value_type: char
       # NOTE: positional parameter with `limit: 0` (unlimited) must be last as we don't know

@@ -2,30 +2,41 @@
 //! Any changes made to this file will be overwritten next time Confu runs
 const std = @import("std");
 
-// TODO: define the data structures
+var args: []const [:0]u8 = undefined;
+var alloc: std.mem.Allocator = undefined;
+
+// TODO: add container level `last_error` and `last_error_message`, 'required satisfied' vars?
+
 pub const ConfuError = error{
     RequestedUsage,
     MissingExecutableName,
     MissingRequiredParameter,
     UnknownParameter,
     InvalidParameterType,
+    OutOfRangeParameter,
 };
 
-pub const Command = enum {
-    cmd1,
+pub const SharedParams = struct {
+    verbosity: u8 = 0,
 };
 
-pub const Param = struct {
-    name: []const u8,
-    required: bool,
-    value: Value,
+pub const Command = union(enum) {
+    cmd1: Cmd1,
 };
 
-pub const Value = union(enum) {
-    Int: i64,
-    Float: f64,
-    String: []const u8,
-    Bool: bool,
+// TODO: minimize the use of optionals?
+pub const Cmd1 = struct {
+    // trim: ?Cmd1ParamTrim,
+    trim: ?[]const u8,
+    char_map: ?std.StringHashMap([]const u8),
+    output: ?union(enum) {
+        stdout: bool,
+        value: []const u8,
+    },
+    input: ?union(enum) {
+        stdin: bool,
+        value: [][]const u8,
+    },
 };
 
 pub const Args = struct {
@@ -33,7 +44,8 @@ pub const Args = struct {
 
     executable_name: []const u8 = undefined,
     command: ?Command = null,
-    params: ?[]const Param = null,
+    params: SharedParams = SharedParams{},
+    // TODO: make this two a container level
     @"error": ?ConfuError = null,
     error_message: []const u8 = undefined,
 
@@ -44,8 +56,20 @@ pub const Args = struct {
             const stderr = bw.writer();
 
             if (err == ConfuError.RequestedUsage) {
-                // TODO: switch on command to print appropriate usage, else print top level usage
-                try stderr.print("Usage: confu [command] [options]\n", .{});
+                if (self.command) |cmd| {
+                    switch (cmd) {
+                        Command.cmd1 => {
+                            try stderr.print("Usage: {s} cmd1 [options]\n", .{self.executable_name});
+                            try stderr.print("\nOptions:\n", .{});
+                            try stderr.print("  --trim <value>  Trim the input string\n", .{});
+                            try stderr.print("  --char-map <value>  Replace characters in the input string\n", .{});
+                            try stderr.print("  --output <value>  Output the result to stdout or a file\n", .{});
+                            try stderr.print("  --input <value>  Input the string from stdin or a file\n", .{});
+                        },
+                    }
+                } else {
+                    try stderr.print("Usage: confu [command] [options]\n", .{});
+                }
             } else {
                 try stderr.print("\nError: {s}\n", .{self.error_message});
             }
@@ -57,70 +81,123 @@ pub const Args = struct {
     pub fn hasError(self: *const Self) bool {
         return self.@"error" != null;
     }
+
+    pub fn deinit(self: *Self) void {
+        _ = self;
+        std.process.argsFree(alloc, args);
+    }
+
+    fn parse_shared_params(self: *Self, n: *usize) ConfuError!bool {
+        if (sw(args[n.*], "--")) {
+            if (eq(args[n.*][2..], "help")) {
+                self.@"error" = ConfuError.RequestedUsage;
+                return ConfuError.RequestedUsage;
+            }
+            if (eq(args[n.*][2..], "verbosity")) {
+                self.params.verbosity += 1;
+                if (self.params.verbosity > 3) {
+                    self.@"error" = ConfuError.OutOfRangeParameter;
+                    // TODO: make 'out of range' error message customizable
+                    self.error_message = "verbosity level out of range";
+                    return ConfuError.OutOfRangeParameter;
+                }
+                return true;
+            }
+        } else if (sw(args[n.*], "-")) {
+            // TODO: implement
+            return false;
+        }
+
+        return false;
+    }
+
+    fn parse_cmd1_params(self: *Self, n: *usize) ConfuError!bool {
+        _ = self;
+        _ = n;
+        return false;
+
+        // also call `parse_shared_params` to parse any shared params from here?
+        // or make an inner loop inside of a `parse` function to loop over this
+        // function in conjunction with `parse_shared_params`?
+
+        //     result.command = Command{
+        //         .cmd1 = Cmd1{
+        //             .trim = null,
+        //             .char_map = null,
+        //             .output = null,
+        //             .input = null,
+        //         },
+        //     };
+
+        // result.@"error" = ConfuError.UnknownParameter;
+        // result.error_message = try std.fmt.allocPrint(allocator, "unknown parameter: `{s}`", .{arg});
+        // return result;
+    }
+
+    // TODO: figure out how to go about matching on the command name
+    /// Parse the `help [command]`
+    fn parse_help_cmd(self: *Self, n: *usize) ConfuError!bool {
+        _ = self;
+        _ = n;
+        return false;
+    }
 };
 
 pub fn parse(allocator: std.mem.Allocator) !Args {
-    var arg_iter = try std.process.argsWithAllocator(allocator);
-    defer arg_iter.deinit();
+    args = try std.process.argsAlloc(allocator);
+    alloc = allocator;
 
-    var args = Args{};
+    var result = Args{};
 
     // Get executable name
-    if (arg_iter.next()) |executable_name| {
-        args.executable_name = executable_name;
+    if (args.len >= 1) {
+        // we avoid allocations:
+        // result.executable_name = std.mem.Allocator.dupe(allocator, u8, args[0]);
+        result.executable_name = args[0];
     } else {
-        args.@"error" = ConfuError.MissingExecutableName;
-        args.error_message = "missing executable name";
-        return args;
+        result.@"error" = ConfuError.MissingExecutableName;
+        result.error_message = "missing executable name";
+        return result;
     }
-
-    var verbocity: u8 = 0;
 
     // Parse Commands
     //   Parse Command Params
     //     in order:
     //       directly provided
     //       environment variables
-    while (arg_iter.next()) |arg| {
+    var n: usize = 1;
+    while (n < args.len) : (n += 1) {
 
-        // TODO: refactor this into appropriate branches below
-        if (eq(arg, "help") or eq(arg, "-h")) {
-            args.@"error" = ConfuError.RequestedUsage;
-            return args;
+        // TODO: refactor this to allow for `exe-name help [command]`
+        if (eq(args[n], "help") or eq(args[n], "-h")) {
+            result.@"error" = ConfuError.RequestedUsage;
+            return result;
         }
 
-        //# Parse commands & shared params
-
-        //## Parse shared long opts
-        if (sw(arg, "--")) {
-            if (eq(arg[2..], "help")) {
-                args.@"error" = ConfuError.RequestedUsage;
-                return args;
-            }
-            if (eq(arg[2..], "verbosity")) {
-                verbocity += 1;
+        //## Parse shared opts
+        if (result.parse_shared_params(&n)) |parsed| {
+            if (parsed) {
                 continue;
             }
-
-            args.@"error" = ConfuError.UnknownParameter;
-            args.error_message = try std.fmt.allocPrint(allocator, "unknown parameter: `{s}`", .{arg});
-            return args;
-        }
-
-        //## Parse shared short opts
-        if (sw(arg, "-")) {
-            continue;
+        } else |_| {
+            return result;
         }
 
         //## Parse commands
-
-        //### Parse command params
+        // TODO: use `switch` instead of `if` for more than 2 commands
+        if (eq(args[n], "cmd1")) {
+            n += 1;
+            if (result.parse_cmd1_params(&n)) |parsed| {
+                if (parsed) {
+                    continue;
+                }
+            } else |_| {
+                return result;
+            }
+        }
     }
 
-    return args;
-
-    // In case of failures, print usage error message / or allow for custom error
-    // handling, and let user decide what to do
+    return result;
 }
 
 fn eq(a: []const u8, b: []const u8) bool {

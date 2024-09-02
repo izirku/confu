@@ -8,7 +8,9 @@ pub fn main() !void {
 
     const writer = std.io.getStdErr().writer();
 
-    const args = try confu.parse(allocator);
+    // TODO: think more about ergonomics and error handling
+    var args = try confu.parse(allocator);
+    defer args.deinit();
 
     if (args.hasError()) {
         try args.printUsage();
