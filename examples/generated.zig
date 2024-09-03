@@ -2,25 +2,34 @@
 //! Any changes made to this file will be overwritten next time Confu runs
 const std = @import("std");
 
-var args: []const [:0]u8 = undefined;
+var arena: std.heap.ArenaAllocator = undefined;
 var alloc: std.mem.Allocator = undefined;
+var args: []const [:0]u8 = undefined;
 
-// TODO: add container level `last_error` and `last_error_message`, 'required satisfied' vars?
+// TODO: add container level 'required satisfied' vars?
+var help_requested: bool = false;
+var current_command: ?CommandTag = null;
+var last_error: ?ConfuError = null;
+var last_error_message: ?[]const u8 = null;
 
 pub const ConfuError = error{
-    RequestedUsage,
     MissingExecutableName,
     MissingRequiredParameter,
     UnknownParameter,
+    InvalidCommand,
     InvalidParameterType,
     OutOfRangeParameter,
 };
 
-pub const SharedParams = struct {
+pub const Options = struct {
     verbosity: u8 = 0,
 };
 
-pub const Command = union(enum) {
+pub const CommandTag = enum {
+    cmd1,
+};
+
+pub const CommandParams = union(CommandTag) {
     cmd1: Cmd1,
 };
 
@@ -43,109 +52,80 @@ pub const Args = struct {
     const Self = @This();
 
     executable_name: []const u8 = undefined,
-    command: ?Command = null,
-    params: SharedParams = SharedParams{},
-    // TODO: make this two a container level
-    @"error": ?ConfuError = null,
-    error_message: []const u8 = undefined,
+    opts: Options = Options{},
+    // TODO: do we need this `command` for ergonomics?
+    command: ?CommandTag = null,
+    command_opts: ?CommandParams = null,
 
     pub fn printUsage(self: *const Self) !void {
-        if (self.@"error") |err| {
+        _ = self;
+        if (help_requested) {
             const stderr_file = std.io.getStdErr().writer();
             var bw = std.io.bufferedWriter(stderr_file);
             const stderr = bw.writer();
 
-            if (err == ConfuError.RequestedUsage) {
-                if (self.command) |cmd| {
-                    switch (cmd) {
-                        Command.cmd1 => {
-                            try stderr.print("Usage: {s} cmd1 [options]\n", .{self.executable_name});
-                            try stderr.print("\nOptions:\n", .{});
-                            try stderr.print("  --trim <value>  Trim the input string\n", .{});
-                            try stderr.print("  --char-map <value>  Replace characters in the input string\n", .{});
-                            try stderr.print("  --output <value>  Output the result to stdout or a file\n", .{});
-                            try stderr.print("  --input <value>  Input the string from stdin or a file\n", .{});
-                        },
-                    }
-                } else {
-                    try stderr.print("Usage: confu [command] [options]\n", .{});
+            if (current_command != null) {
+                switch (current_command.?) {
+                    .cmd1 => {
+                        try stderr.print("Usage: cmd1 [OPTIONS]\n", .{});
+                        try stderr.print("\nOptions:\n", .{});
+                        try stderr.print("  --trim <value>  Trim the input string\n", .{});
+                        try stderr.print("  --char-map <value>  Replace characters in the input string\n", .{});
+                        try stderr.print("  --output <value>  Output the result to stdout or a file\n", .{});
+                        try stderr.print("  --input <value>  Input the string from stdin or a file\n", .{});
+                    },
                 }
             } else {
-                try stderr.print("\nError: {s}\n", .{self.error_message});
+                try stderr.print("Usage: confu [OPTIONS] [COMMAND]\n", .{});
+                try stderr.print("\nSee 'confu help <command> for more information on a specific command'\n", .{});
             }
 
             try bw.flush();
         }
     }
 
+    pub fn printError(self: *const Self) !void {
+        _ = self;
+        if (last_error != null) {
+            const stderr = std.io.getStdErr().writer();
+            try stderr.print("\nError: {s}\n", .{last_error_message.?});
+        }
+    }
+
+    pub fn helpRequested(self: *const Self) bool {
+        _ = self;
+        return help_requested;
+    }
+
     pub fn hasError(self: *const Self) bool {
-        return self.@"error" != null;
+        _ = self;
+        return last_error != null;
     }
 
     pub fn deinit(self: *Self) void {
         _ = self;
-        std.process.argsFree(alloc, args);
+        // std.process.argsFree(alloc, args);
+        arena.deinit();
     }
 
-    fn parse_shared_params(self: *Self, n: *usize) ConfuError!bool {
-        if (sw(args[n.*], "--")) {
-            if (eq(args[n.*][2..], "help")) {
-                self.@"error" = ConfuError.RequestedUsage;
-                return ConfuError.RequestedUsage;
-            }
-            if (eq(args[n.*][2..], "verbosity")) {
-                self.params.verbosity += 1;
-                if (self.params.verbosity > 3) {
-                    self.@"error" = ConfuError.OutOfRangeParameter;
-                    // TODO: make 'out of range' error message customizable
-                    self.error_message = "verbosity level out of range";
-                    return ConfuError.OutOfRangeParameter;
-                }
-                return true;
-            }
-        } else if (sw(args[n.*], "-")) {
-            // TODO: implement
-            return false;
-        }
+    pub fn getCmd1Args(self: *const Self) !*const Cmd1 {
+        // if (self.command == .cmd1) {
+        //     return self.command_opts.?.cmd1;
+        // }
+        // return Cmd1{};
 
-        return false;
-    }
-
-    fn parse_cmd1_params(self: *Self, n: *usize) ConfuError!bool {
-        _ = self;
-        _ = n;
-        return false;
-
-        // also call `parse_shared_params` to parse any shared params from here?
-        // or make an inner loop inside of a `parse` function to loop over this
-        // function in conjunction with `parse_shared_params`?
-
-        //     result.command = Command{
-        //         .cmd1 = Cmd1{
-        //             .trim = null,
-        //             .char_map = null,
-        //             .output = null,
-        //             .input = null,
-        //         },
-        //     };
-
-        // result.@"error" = ConfuError.UnknownParameter;
-        // result.error_message = try std.fmt.allocPrint(allocator, "unknown parameter: `{s}`", .{arg});
-        // return result;
-    }
-
-    // TODO: figure out how to go about matching on the command name
-    /// Parse the `help [command]`
-    fn parse_help_cmd(self: *Self, n: *usize) ConfuError!bool {
-        _ = self;
-        _ = n;
-        return false;
+        if (self.command_opts != null and self.command_opts.? == .cmd1) {
+            return &(self.command_opts.?.cmd1);
+        } else return ConfuError.InvalidCommand;
     }
 };
 
 pub fn parse(allocator: std.mem.Allocator) !Args {
-    args = try std.process.argsAlloc(allocator);
-    alloc = allocator;
+    arena = std.heap.ArenaAllocator.init(allocator);
+    alloc = arena.allocator();
+    args = try std.process.argsAlloc(alloc);
+    // TODO: check behavior if this, watch out for "double free" - does arena handle this or we need to handle it?
+    errdefer arena.deinit();
 
     var result = Args{};
 
@@ -155,8 +135,8 @@ pub fn parse(allocator: std.mem.Allocator) !Args {
         // result.executable_name = std.mem.Allocator.dupe(allocator, u8, args[0]);
         result.executable_name = args[0];
     } else {
-        result.@"error" = ConfuError.MissingExecutableName;
-        result.error_message = "missing executable name";
+        last_error = ConfuError.MissingExecutableName;
+        last_error_message = "missing executable name";
         return result;
     }
 
@@ -165,35 +145,110 @@ pub fn parse(allocator: std.mem.Allocator) !Args {
     //     in order:
     //       directly provided
     //       environment variables
+    std.debug.print("args.len: {d}\n", .{args.len});
     var n: usize = 1;
+
+    // parse options
     while (n < args.len) : (n += 1) {
-
-        // TODO: refactor this to allow for `exe-name help [command]`
-        if (eq(args[n], "help") or eq(args[n], "-h")) {
-            result.@"error" = ConfuError.RequestedUsage;
-            return result;
-        }
-
-        //## Parse shared opts
-        if (result.parse_shared_params(&n)) |parsed| {
-            if (parsed) {
-                continue;
-            }
-        } else |_| {
-            return result;
-        }
-
-        //## Parse commands
-        // TODO: use `switch` instead of `if` for more than 2 commands
-        if (eq(args[n], "cmd1")) {
-            n += 1;
-            if (result.parse_cmd1_params(&n)) |parsed| {
-                if (parsed) {
-                    continue;
-                }
-            } else |_| {
+        if (sw(args[n], "--")) {
+            if (eq(args[n][2..], "help")) {
+                // last_error = ConfuError.RequestedUsage;
+                help_requested = true;
                 return result;
             }
+            if (eq(args[n][2..], "verbosity")) {
+                result.opts.verbosity += 1;
+                if (result.opts.verbosity > 3) {
+                    last_error = ConfuError.OutOfRangeParameter;
+                    // TODO: make 'out of range' error message customizable
+                    last_error_message = "verbosity level out of range";
+                    return result;
+                }
+            } else {
+                last_error = ConfuError.UnknownParameter;
+                // TODO: we could technically intorduce a new container level variable to contain a slice pointing to args[n]
+                // this way we could avoid extra allocation here.
+                last_error_message = try std.fmt.allocPrint(alloc, "unknown parameter: `{s}`", .{args[n]});
+                return result;
+            }
+        } else if (sw(args[n], "-")) {
+            // TODO: implement
+            unreachable;
+        } else {
+            // encountered a non-option argument,
+            break;
+        }
+    }
+
+    // n += 1;
+    std.debug.print("n after parsing options: {d}\n", .{n});
+
+    // no command provided after options
+    if (n > args.len - 1) {
+        // TODO: allow 'top-level' command to be executed (if applicable),
+        // don't just default to "help requested", let users specify the desired behavior
+        // std.debug.print("no command provided after options\n", .{});
+        help_requested = true;
+        return result;
+    }
+
+    // determine command, immediately "process" 'help <command', otherwise set `current_command`
+    if (eq(args[n], "help")) {
+        help_requested = true;
+        n += 1;
+        if (n < args.len) {
+            if (eq(args[n], "cmd1")) {
+                current_command = .cmd1;
+            } else {
+                last_error = ConfuError.InvalidCommand;
+                last_error_message = try std.fmt.allocPrint(alloc, "invalid command: `{s}`", .{args[n]});
+                return result;
+            }
+        }
+        return result;
+    } else if (eq(args[n], "cmd1")) {
+        current_command = .cmd1;
+    } else {
+        last_error = ConfuError.InvalidCommand;
+        last_error_message = try std.fmt.allocPrint(alloc, "invalid command: `{s}`", .{args[n]});
+        return result;
+    }
+
+    if (current_command != null) {
+        n += 1;
+    }
+
+    // command without arguments
+    if (n >= args.len) {
+        // TODO: allow commands to be executed without arguments,
+        // don't just default to "help requested", let users specify the desired behavior
+        help_requested = true;
+        return result;
+    }
+
+    // all commands have the '--help' and '-h' options
+    // TODO: handle `-h` specially, as it could be mixed in with other short options
+    if (eq(args[n], "--help") or eq(args[n], "-h")) {
+        help_requested = true;
+        return result;
+    }
+
+    // parse command arguments
+    if (current_command) |cmd| {
+        switch (cmd) {
+            .cmd1 => {
+                result.command = .cmd1;
+                result.command_opts = CommandParams{ .cmd1 = Cmd1{
+                    .trim = null,
+                    .char_map = null,
+                    .output = null,
+                    .input = null,
+                } };
+
+                while (n < args.len) : (n += 1) {
+                    std.debug.print("parsing cmd1 param {d}: {s}\n", .{ n, args[n] });
+                }
+            },
         }
     }
 
